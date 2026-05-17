@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Notion XO Multiplayer</title>
+    <title>Notion XO Multiplayer (Stable UI)</title>
     
     <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
@@ -11,6 +11,7 @@
 
     <style>
         :root {
+            /* Matched to Notion's dark mode background */
             --bg-color: #191919; 
             --cell-bg: #2c2c2c;
             --cell-hover: #3d3d3d;
@@ -20,6 +21,11 @@
             --accent-o: #2ed573;
             --btn-bg: #333333;
             --btn-hover: #444444;
+        }
+
+        /* 1. Global Stability Fix */
+        * {
+            box-sizing: border-box; /* Ensures padding/borders don't shrink content area */
         }
 
         body, html {
@@ -33,14 +39,15 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            overflow: hidden;
+            overflow: hidden; /* Prevents iframe scrollbars */
         }
 
         .game-wrapper {
             display: flex;
             flex-direction: column;
-            width: 90%;
-            max-width: 260px;
+            width: 95%; /* Maximized for small blocks */
+            max-width: 280px; /* Constrained for small blocks */
+            align-items: center;
         }
 
         .status {
@@ -49,21 +56,21 @@
             margin-bottom: 12px;
             text-align: center;
             min-height: 24px;
+            width: 100%;
         }
 
         .board {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 6px;
+            gap: 8px; /* Slightly larger gap for clarity */
             width: 100%;
-            aspect-ratio: 1;
             margin-bottom: 16px;
         }
 
+        /* 2. Optimized Cell Structure */
         .cell {
             background-color: var(--cell-bg);
             border-radius: 8px;
-            font-size: 2.5rem;
             font-weight: 700;
             cursor: pointer;
             display: flex;
@@ -71,6 +78,14 @@
             justify-content: center;
             transition: background-color 0.15s ease, transform 0.1s ease;
             user-select: none;
+            
+            /* 3. The Shift Fixes */
+            aspect-ratio: 1; /* Forces perfectly square cells */
+            overflow: hidden; /* Prevents content from pushing boundaries */
+            line-height: 0;  /* Key Fix: Eliminates vertical text leading space */
+            
+            /* Dynamic Font Size based on wrapper width, constrained */
+            font-size: min(2.5rem, 15vw);
         }
 
         .cell:hover {
@@ -79,6 +94,11 @@
 
         .cell:active {
             transform: scale(0.95);
+        }
+
+        /* Ensure X and O occupy identical space */
+        .cell.X, .cell.O {
+            display: flex; 
         }
 
         .cell.X { color: var(--accent-x); }
@@ -95,6 +115,7 @@
             font-weight: 500;
             transition: background-color 0.15s;
             width: 100%;
+            max-width: 200px; /* Constrain button width */
         }
 
         button:hover {
@@ -105,7 +126,7 @@
 <body>
 
 <div class="game-wrapper">
-    <div class="status" id="status">Connecting to server...</div>
+    <div class="status" id="status">Connecting...</div>
     <div class="board" id="board">
         <div class="cell" data-index="0"></div>
         <div class="cell" data-index="1"></div>
@@ -121,9 +142,10 @@
 </div>
 
 <script>
-    // 1. Initialize Firebase
+    // 1. Initialize Firebase (Ensure Version 8 syntax)
     const firebaseConfig = {
-        apiKey: "REPLACE_WITH_YOUR_ACTUAL_API_KEY", // Locate this in Firebase Project Settings
+        // !!! IMPORTANT !!! Locate your actual API Key in Firebase Project Settings
+        apiKey: "AIzaSyAxX3iJr--KNulCnYXqpqe6eew8_0A7lEw", 
         projectId: "gos-backend",
         databaseURL: "https://gos-backend-default-rtdb.firebaseio.com/"
     };
@@ -164,12 +186,11 @@
         const data = snapshot.val();
         
         if (!data) {
-            // Database is empty, initialize it
             dbRef.set(defaultState);
             return;
         }
 
-        // Sync local variables with database
+        // Sync local variables
         localBoard = data.board;
         localCurrentPlayer = data.currentPlayer;
         localIsGameActive = data.isGameActive;
@@ -180,7 +201,7 @@
 
         cells.forEach((cell, index) => {
             cell.innerText = localBoard[index];
-            cell.className = 'cell'; // Reset classes
+            cell.className = 'cell'; // Force reset all classes
             if (localBoard[index] !== '') {
                 cell.classList.add(localBoard[index]);
             }
@@ -189,14 +210,15 @@
 
     // 6. Handle Interaction
     function handleCellClick(e) {
+        // Guard clause for edge of cells
+        if (!e.target.classList.contains('cell')) return; 
+        
         const clickedCellIndex = parseInt(e.target.getAttribute('data-index'));
 
         if (localBoard[clickedCellIndex] !== '' || !localIsGameActive) return;
 
-        // Apply move locally
         localBoard[clickedCellIndex] = localCurrentPlayer;
         
-        // Calculate new state parameters
         let roundWon = false;
         for (let i = 0; i < winningConditions.length; i++) {
             const [a, b, c] = winningConditions[i];
@@ -223,13 +245,11 @@
             newState.statusText = 'Game Tied!';
             newState.statusColor = 'var(--text-muted)';
         } else {
-            // Switch turns
             newState.currentPlayer = localCurrentPlayer === 'X' ? 'O' : 'X';
             newState.statusText = `Player ${newState.currentPlayer}'s turn`;
             newState.statusColor = 'var(--text-color)';
         }
 
-        // Push new state to Database
         dbRef.set(newState);
     }
 
