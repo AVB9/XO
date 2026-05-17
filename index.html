@@ -3,10 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Notion XO Embed</title>
+    <title>Notion XO Multiplayer</title>
+    
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
     <style>
         :root {
-            /* Matched to Notion's dark mode background */
             --bg-color: #191919; 
             --cell-bg: #2c2c2c;
             --cell-hover: #3d3d3d;
@@ -29,14 +33,14 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            overflow: hidden; /* Prevents iframe scrollbars */
+            overflow: hidden;
         }
 
         .game-wrapper {
             display: flex;
             flex-direction: column;
             width: 90%;
-            max-width: 260px; /* Constrained for small blocks */
+            max-width: 260px;
         }
 
         .status {
@@ -52,7 +56,7 @@
             grid-template-columns: repeat(3, 1fr);
             gap: 6px;
             width: 100%;
-            aspect-ratio: 1; /* Keeps cells perfectly square */
+            aspect-ratio: 1;
             margin-bottom: 16px;
         }
 
@@ -101,7 +105,7 @@
 <body>
 
 <div class="game-wrapper">
-    <div class="status" id="status">Player X's turn</div>
+    <div class="status" id="status">Connecting to server...</div>
     <div class="board" id="board">
         <div class="cell" data-index="0"></div>
         <div class="cell" data-index="1"></div>
@@ -113,18 +117,32 @@
         <div class="cell" data-index="7"></div>
         <div class="cell" data-index="8"></div>
     </div>
-    <button id="resetBtn">Restart Match</button>
+    <button id="resetBtn">Reset Game for Both</button>
 </div>
 
 <script>
+    // 1. Initialize Firebase
+    const firebaseConfig = {
+        apiKey: "REPLACE_WITH_YOUR_ACTUAL_API_KEY", // Locate this in Firebase Project Settings
+        projectId: "gos-backend",
+        databaseURL: "https://gos-backend-default-rtdb.firebaseio.com/"
+    };
+
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+    const dbRef = firebase.database().ref('notion_widgets/xo_game/state');
+
+    // 2. DOM Elements
     const boardElement = document.getElementById('board');
     const cells = document.querySelectorAll('.cell');
     const statusElement = document.getElementById('status');
     const resetBtn = document.getElementById('resetBtn');
 
-    let board = ['', '', '', '', '', '', '', '', ''];
-    let currentPlayer = 'X';
-    let isGameActive = true;
+    // 3. Local State Variables
+    let localBoard = ['', '', '', '', '', '', '', '', ''];
+    let localCurrentPlayer = 'X';
+    let localIsGameActive = false;
 
     const winningConditions = [
         [0, 1, 2], [3, 4, 5], [6, 7, 8],
@@ -132,61 +150,91 @@
         [0, 4, 8], [2, 4, 6]
     ];
 
+    // 4. Default State Template
+    const defaultState = {
+        board: ['', '', '', '', '', '', '', '', ''],
+        currentPlayer: 'X',
+        isGameActive: true,
+        statusText: "Player X's turn",
+        statusColor: "var(--text-color)"
+    };
+
+    // 5. Listen to Database Changes
+    dbRef.on('value', (snapshot) => {
+        const data = snapshot.val();
+        
+        if (!data) {
+            // Database is empty, initialize it
+            dbRef.set(defaultState);
+            return;
+        }
+
+        // Sync local variables with database
+        localBoard = data.board;
+        localCurrentPlayer = data.currentPlayer;
+        localIsGameActive = data.isGameActive;
+
+        // Update UI
+        statusElement.innerText = data.statusText;
+        statusElement.style.color = data.statusColor;
+
+        cells.forEach((cell, index) => {
+            cell.innerText = localBoard[index];
+            cell.className = 'cell'; // Reset classes
+            if (localBoard[index] !== '') {
+                cell.classList.add(localBoard[index]);
+            }
+        });
+    });
+
+    // 6. Handle Interaction
     function handleCellClick(e) {
-        const clickedCell = e.target;
-        const clickedCellIndex = parseInt(clickedCell.getAttribute('data-index'));
+        const clickedCellIndex = parseInt(e.target.getAttribute('data-index'));
 
-        if (board[clickedCellIndex] !== '' || !isGameActive) return;
+        if (localBoard[clickedCellIndex] !== '' || !localIsGameActive) return;
 
-        updateCell(clickedCell, clickedCellIndex);
-        checkResult();
-    }
-
-    function updateCell(cell, index) {
-        board[index] = currentPlayer;
-        cell.innerText = currentPlayer;
-        cell.classList.add(currentPlayer);
-    }
-
-    function checkResult() {
+        // Apply move locally
+        localBoard[clickedCellIndex] = localCurrentPlayer;
+        
+        // Calculate new state parameters
         let roundWon = false;
-
         for (let i = 0; i < winningConditions.length; i++) {
             const [a, b, c] = winningConditions[i];
-            if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+            if (localBoard[a] && localBoard[a] === localBoard[b] && localBoard[a] === localBoard[c]) {
                 roundWon = true;
                 break;
             }
         }
 
+        let newState = {
+            board: localBoard,
+            currentPlayer: localCurrentPlayer,
+            isGameActive: true,
+            statusText: "",
+            statusColor: ""
+        };
+
         if (roundWon) {
-            statusElement.innerText = `Player ${currentPlayer} Wins!`;
-            statusElement.style.color = currentPlayer === 'X' ? 'var(--accent-x)' : 'var(--accent-o)';
-            isGameActive = false;
-            return;
+            newState.isGameActive = false;
+            newState.statusText = `Player ${localCurrentPlayer} Wins!`;
+            newState.statusColor = localCurrentPlayer === 'X' ? 'var(--accent-x)' : 'var(--accent-o)';
+        } else if (!localBoard.includes('')) {
+            newState.isGameActive = false;
+            newState.statusText = 'Game Tied!';
+            newState.statusColor = 'var(--text-muted)';
+        } else {
+            // Switch turns
+            newState.currentPlayer = localCurrentPlayer === 'X' ? 'O' : 'X';
+            newState.statusText = `Player ${newState.currentPlayer}'s turn`;
+            newState.statusColor = 'var(--text-color)';
         }
 
-        if (!board.includes('')) {
-            statusElement.innerText = 'Game Tied!';
-            statusElement.style.color = 'var(--text-muted)';
-            isGameActive = false;
-            return;
-        }
-
-        currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
-        statusElement.innerText = `Player ${currentPlayer}'s turn`;
+        // Push new state to Database
+        dbRef.set(newState);
     }
 
     function resetGame() {
-        board = ['', '', '', '', '', '', '', '', ''];
-        currentPlayer = 'X';
-        isGameActive = true;
-        statusElement.innerText = `Player ${currentPlayer}'s turn`;
-        statusElement.style.color = 'var(--text-color)';
-        cells.forEach(cell => {
-            cell.innerText = '';
-            cell.classList.remove('X', 'O');
-        });
+        dbRef.set(defaultState);
     }
 
     boardElement.addEventListener('click', handleCellClick);
